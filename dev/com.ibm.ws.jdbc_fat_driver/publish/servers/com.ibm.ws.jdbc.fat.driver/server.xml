@@ -12,7 +12,7 @@
 
 	<featureManager>
       <feature>servlet-3.1</feature>
-      <feature>jdbc-4.1</feature>
+      <feature>jdbc-4.3</feature>
       <feature>componenttest-1.0</feature>
       <feature>jndi-1.0</feature>
     </featureManager>
