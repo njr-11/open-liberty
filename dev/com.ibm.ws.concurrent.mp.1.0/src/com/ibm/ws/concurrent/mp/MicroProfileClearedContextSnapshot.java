@@ -19,6 +19,7 @@ import java.util.HashSet;
 import java.util.concurrent.RejectedExecutionException;
 
 import org.eclipse.microprofile.concurrent.ThreadContext;
+import org.eclipse.microprofile.concurrent.spi.ConcurrencyProvider;
 import org.eclipse.microprofile.concurrent.spi.ThreadContextController;
 import org.eclipse.microprofile.concurrent.spi.ThreadContextProvider;
 import org.eclipse.microprofile.concurrent.spi.ThreadContextSnapshot;
@@ -46,22 +47,25 @@ public class MicroProfileClearedContextSnapshot implements com.ibm.wsspi.threadc
      WLMContextProvider.WORKLOAD //
     ));
 
-    private final ArrayList<ThreadContextController> contextRestorers = new ArrayList<ThreadContextController>();
-    private final ArrayList<ThreadContextSnapshot> contextSnapshots = new ArrayList<ThreadContextSnapshot>();
+    private final transient ConcurrencyManagerImpl concurrencyManager;
+    private final transient ArrayList<ThreadContextController> contextRestorers = new ArrayList<ThreadContextController>();
 
-    MicroProfileClearedContextSnapshot(ConcurrencyManagerImpl concurrencyMgr) {
-        for (ThreadContextProvider provider : concurrencyMgr.contextProviders)
-            if (!DO_NOT_CLEAR.contains(provider.getThreadContextType()))
-                contextSnapshots.add(provider.clearedContext(Collections.emptyMap()));
+    /**
+     * Constructor for deserialization
+     */
+    public MicroProfileClearedContextSnapshot() {
+        this.concurrencyManager = (ConcurrencyManagerImpl) ConcurrencyProvider.instance().getConcurrencyManager();
+    }
+
+    MicroProfileClearedContextSnapshot(ConcurrencyManagerImpl concurrencyManager) {
+        this.concurrencyManager = concurrencyManager;
+        // It would be wrong to assume that cleared context is immutable and save it here,
+        // allowing it to be cloned and shared across multiple threads.
     }
 
     @Override
     public com.ibm.wsspi.threadcontext.ThreadContext clone() {
-        try {
-            return (com.ibm.wsspi.threadcontext.ThreadContext) super.clone();
-        } catch (CloneNotSupportedException x) {
-            throw new Error(x); // should be impossible
-        }
+        return new MicroProfileClearedContextSnapshot(concurrencyManager);
     }
 
     @Override
@@ -69,12 +73,15 @@ public class MicroProfileClearedContextSnapshot implements com.ibm.wsspi.threadc
         final boolean trace = TraceComponent.isAnyTracingEnabled();
 
         try {
-            for (ThreadContextSnapshot snapshot : contextSnapshots) {
-                if (trace && tc.isDebugEnabled())
-                    Tr.debug(this, tc, "clearing " + snapshot);
+            for (ThreadContextProvider provider : concurrencyManager.contextProviders)
+                if (!DO_NOT_CLEAR.contains(provider.getThreadContextType())) {
+                    ThreadContextSnapshot snapshot = provider.clearedContext(Collections.emptyMap());
 
-                contextRestorers.add(snapshot.begin());
-            }
+                    if (trace && tc.isDebugEnabled())
+                        Tr.debug(this, tc, "clearing " + snapshot);
+
+                    contextRestorers.add(snapshot.begin());
+                }
         } catch (Error | RuntimeException x) {
             taskStopping();
             throw x;
@@ -112,7 +119,7 @@ public class MicroProfileClearedContextSnapshot implements com.ibm.wsspi.threadc
 
     private void writeObject(ObjectOutputStream outStream) throws IOException {
         outStream.putFields();
-        // nothing to write because the clearing context is recreated at deserialization time
+        // nothing to write because the concurrency manager is repopulated at deserialization time
         outStream.writeFields();
     }
 }
