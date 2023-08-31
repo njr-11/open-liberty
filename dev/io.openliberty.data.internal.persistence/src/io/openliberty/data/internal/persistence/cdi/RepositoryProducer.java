@@ -52,14 +52,12 @@ public class RepositoryProducer<R, P> implements Producer<R> {
         private final Class<?> entityClass;
         private final EntityDefiner entityDefiner;
         private final DataExtension extension;
-        private final boolean requestsValidation;
 
-        Factory(BeanManager beanMgr, DataExtension extension, EntityDefiner entityDefiner, Class<?> entityClass, boolean requestsValidation) {
+        Factory(BeanManager beanMgr, DataExtension extension, EntityDefiner entityDefiner, Class<?> entityClass) {
             this.beanMgr = beanMgr;
             this.entityClass = entityClass;
             this.entityDefiner = entityDefiner;
             this.extension = extension;
-            this.requestsValidation = requestsValidation;
         }
 
         @Override
@@ -124,7 +122,7 @@ public class RepositoryProducer<R, P> implements Producer<R> {
                 }
 
         RepositoryImpl<R> handler = new RepositoryImpl<>(factory.extension, factory.entityDefiner, //
-                        repositoryInterface, factory.entityClass, factory.requestsValidation);
+                        repositoryInterface, factory.entityClass);
 
         R instance = repositoryInterface.cast(Proxy.newProxyInstance(repositoryInterface.getClassLoader(),
                                                                      new Class<?>[] { repositoryInterface },

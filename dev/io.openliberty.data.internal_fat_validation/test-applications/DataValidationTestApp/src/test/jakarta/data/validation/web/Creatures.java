@@ -15,11 +15,18 @@ package test.jakarta.data.validation.web;
 import jakarta.data.repository.CrudRepository;
 import jakarta.data.repository.Repository;
 import jakarta.validation.Valid;
+import jakarta.validation.executable.ValidateOnExecution;
 
 /**
  * Repository for a Jakarta Persistence entity with bean validation annotations.
  */
 @Repository(dataStore = "java:module/jdbc/DerbyDataSource")
-public interface Creatures extends CrudRepository<@Valid Creature, Long> {
+@ValidateOnExecution
+public interface Creatures extends CrudRepository<Creature, Long> {
+
+    Iterable<Creature> saveAllValid(@Valid Iterable<Creature> entities);
+
+    Creature saveValid(@Valid Creature entity);
+
     boolean updateByIdSetWeight(long id, float newWeight);
 }

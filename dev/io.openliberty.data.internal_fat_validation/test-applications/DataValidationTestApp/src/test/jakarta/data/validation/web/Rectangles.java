@@ -12,17 +12,26 @@
  *******************************************************************************/
 package test.jakarta.data.validation.web;
 
+import java.util.List;
+
 import jakarta.data.repository.Repository;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.executable.ValidateOnExecution;
 
 /**
  * Repository for a record with bean validation annotations.
  */
 @Repository(dataStore = "java:module/jdbc/DerbyDataSource")
 public interface Rectangles {
+    @ValidateOnExecution
+    List<Rectangle> findByWidth(@Positive int width);
+
     int findWidthById(String id);
 
+    @ValidateOnExecution
     void save(@Valid Rectangle r);
 
+    @ValidateOnExecution
     void saveAll(@Valid Rectangle... rectangles);
 }

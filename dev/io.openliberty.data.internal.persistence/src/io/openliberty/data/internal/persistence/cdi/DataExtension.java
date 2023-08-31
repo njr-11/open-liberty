@@ -20,14 +20,12 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
-import java.util.AbstractMap;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -94,9 +92,9 @@ public class DataExtension implements Extension, PrivilegedAction<DataExtensionP
     private final ConcurrentHashMap<AnnotatedType<?>, String> repositoryTypes = new ConcurrentHashMap<>();
 
     /**
-     * jakarata.validation.Valid, if available. Otherwise null.
+     * jakarta.validation.executable.ValidateOnExecution, if available. Otherwise null.
      */
-    public final Class<? extends Annotation> Valid = loadIfAvailable("jakarta.validation.Valid");
+    public final Class<? extends Annotation> ValidateOnExecution = loadIfAvailable("jakarta.validation.executable.ValidateOnExecution");
 
     /**
      * A key for a group of entities for the same backend database
@@ -164,9 +162,7 @@ public class DataExtension implements Extension, PrivilegedAction<DataExtensionP
             AnnotatedType<?> repositoryType = entry.getKey();
             String databaseStoreId = entry.getValue();
             Class<?> repositoryInterface = repositoryType.getJavaClass();
-            Entry<Class<?>, Boolean> entityClassInfo = getEntityClass(repositoryInterface);
-            Class<?> entityClass = entityClassInfo.getKey();
-            boolean requestsValidation = entityClassInfo.getValue();
+            Class<?> entityClass = getEntityClass(repositoryInterface);
             ClassLoader loader = repositoryInterface.getClassLoader();
 
             if (supportsEntity(entityClass, repositoryType)) {
@@ -179,7 +175,7 @@ public class DataExtension implements Extension, PrivilegedAction<DataExtensionP
 
                 BeanAttributes<?> attrs = beanMgr.createBeanAttributes(repositoryType);
                 Bean<?> bean = beanMgr.createBean(attrs, repositoryInterface, new RepositoryProducer.Factory<>( //
-                                beanMgr, this, entityDefiner, entityClass, requestsValidation));
+                                beanMgr, this, entityDefiner, entityClass));
                 repositoryBeans.add(bean);
             }
         }
@@ -349,9 +345,8 @@ public class DataExtension implements Extension, PrivilegedAction<DataExtensionP
      * @return entity class for the repository and whether the repository requests validation
      *         of the entity class by annotating it with jakarta.validation.Valid.
      */
-    private Entry<Class<?>, Boolean> getEntityClass(Class<?> repositoryInterface) {
+    private Class<?> getEntityClass(Class<?> repositoryInterface) {
         Class<?> entityClass = null;
-        boolean requestsValidation = false;
 
         for (java.lang.reflect.AnnotatedType interfaceType : repositoryInterface.getAnnotatedInterfaces()) {
             if (interfaceType instanceof AnnotatedParameterizedType) {
@@ -360,7 +355,6 @@ public class DataExtension implements Extension, PrivilegedAction<DataExtensionP
                 Type firstParamType = typeParams.length > 0 ? typeParams[0].getType() : null;
                 if (firstParamType != null && firstParamType instanceof Class) {
                     entityClass = (Class<?>) firstParamType;
-                    requestsValidation = typeParams[0].isAnnotationPresent(Valid);
                     if (typeParams.length == 2 && parameterizedType.getType().getTypeName().startsWith(DataRepository.class.getPackageName()))
                         break; // spec-defined repository interfaces take precedence if multiple interfaces are present
                 }
@@ -398,7 +392,7 @@ public class DataExtension implements Extension, PrivilegedAction<DataExtensionP
                                                    " or another built-in repository interface and supply the entity class as the first parameter.");
         }
 
-        return new AbstractMap.SimpleImmutableEntry<>(entityClass, requestsValidation);
+        return entityClass;
     }
 
     /**

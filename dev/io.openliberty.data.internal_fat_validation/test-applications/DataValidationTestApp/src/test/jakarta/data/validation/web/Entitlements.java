@@ -17,6 +17,7 @@ import java.util.Optional;
 import jakarta.data.repository.DataRepository;
 import jakarta.data.repository.Repository;
 import jakarta.validation.Valid;
+import jakarta.validation.executable.ValidateOnExecution;
 
 /**
  * Repository for a Jakarta Persistence entity with bean validation annotations.
@@ -26,9 +27,9 @@ public interface Entitlements extends DataRepository<Entitlement, Long> {
 
     Optional<Entitlement> findById(long id);
 
-    @Valid
-    Entitlement save(Entitlement e);
+    @ValidateOnExecution
+    Entitlement save(@Valid Entitlement e);
 
-    @Valid
-    Entitlement[] save(Entitlement[] e);
+    @ValidateOnExecution
+    Entitlement[] save(@Valid Entitlement[] e);
 }

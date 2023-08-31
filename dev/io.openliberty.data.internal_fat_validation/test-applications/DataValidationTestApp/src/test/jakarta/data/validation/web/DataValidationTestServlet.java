@@ -514,4 +514,24 @@ public class DataValidationTestServlet extends FATServlet {
         }
         assertEquals(Collections.EMPTY_SET, violations);
     }
+
+    /**
+     * Verify that a method that is annotated with ValidateOnExecution has its parameters
+     * validated before it runs.
+     */
+    @Test
+    public void testValidateMethodParametersOnExecution() {
+        // valid parameter
+        rectangles.findByWidth(10);
+
+        // invalid parameter
+        try {
+            List<Rectangle> found = rectangles.findByWidth(-20);
+            fail("Did not detect violated constraint. Instead found: " + found);
+        } catch (ConstraintViolationException x) {
+            Set<?> violations = x.getConstraintViolations();
+            if (violations.isEmpty())
+                throw x;
+        }
+    }
 }

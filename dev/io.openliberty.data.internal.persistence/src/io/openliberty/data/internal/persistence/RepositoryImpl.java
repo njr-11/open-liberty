@@ -24,7 +24,6 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
-import java.lang.reflect.TypeVariable;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 import java.security.PrivilegedActionException;
@@ -140,15 +139,13 @@ public class RepositoryImpl<R> implements InvocationHandler {
     private final DataExtensionProvider provider;
     final Map<Method, CompletableFuture<QueryInfo>> queries = new HashMap<>();
     private final Class<R> repositoryInterface;
-    private final boolean requestsValidation; // indicates if repository superinterface is annotated with jakarta.validation.Valid
-    private final Class<? extends Annotation> Valid; // the jakarta.validation.Valid, if available
+    private final Class<? extends Annotation> ValidateOnExecution; // the jakarta.validation.executable.ValidateOnExecution, if available
 
-    public RepositoryImpl(DataExtension extension, EntityDefiner definer, Class<R> repositoryInterface, Class<?> defaultEntityClass, boolean requestsValidation) {
+    public RepositoryImpl(DataExtension extension, EntityDefiner definer, Class<R> repositoryInterface, Class<?> defaultEntityClass) {
         this.defaultEntityClass = defaultEntityClass;
         this.provider = extension.provider;
         this.repositoryInterface = repositoryInterface;
-        this.requestsValidation = requestsValidation;
-        this.Valid = extension.Valid;
+        ValidateOnExecution = extension.ValidateOnExecution;
 
         boolean inheritance = defaultEntityClass.getAnnotation(Inheritance.class) != null;
         Class<?> recordClass = null;
@@ -354,6 +351,11 @@ public class RepositoryImpl<R> implements InvocationHandler {
 
         // TODO would it be more efficient to invoke method.getAnnotations() once?
 
+        if (ValidateOnExecution != null)
+            queryInfo.validatable = queryInfo.method.isAnnotationPresent(ValidateOnExecution)
+                                    || repositoryInterface.isAnnotationPresent(ValidateOnExecution);
+        // TODO consider the attribute value on the annotation instead of assuming it always means to enable validation
+
         Query query = queryInfo.method.getAnnotation(Query.class);
         if (query == null) {
             // Query by annotations
@@ -410,8 +412,6 @@ public class RepositoryImpl<R> implements InvocationHandler {
                                                             " which can be the entity or a collection or array of entities. The " + queryInfo.method.getName() +
                                                             " method has " + paramTypes.length + " parameters."); // TODO NLS
                 queryInfo.saveParamType = paramTypes[0];
-                if (Valid != null)
-                    queryInfo.validatable = isValidatable(queryInfo.method, queryInfo.saveParamType);
             } else {
                 // Query by method name
                 q = generateMethodNameQuery(queryInfo, countPages);//keyset queries before orderby
@@ -1865,6 +1865,10 @@ public class RepositoryImpl<R> implements InvocationHandler {
             if (trace && tc.isDebugEnabled())
                 Tr.debug(this, tc, queryInfo.toString());
 
+            EntityValidator validator = provider.validator();
+            if (queryInfo.validatable && validator != null)
+                validator.validateParameters(proxy, method, args);
+
             LocalTransactionCoordinator suspendedLTC = null;
             EntityManager em = null;
             Object returnValue;
@@ -1890,8 +1894,6 @@ public class RepositoryImpl<R> implements InvocationHandler {
 
                 switch (queryInfo.type) {
                     case MERGE: {
-                        EntityValidator validator = provider.validator();
-
                         em = entityInfo.persister.createEntityManager();
 
                         List<Object> results;
@@ -1899,21 +1901,21 @@ public class RepositoryImpl<R> implements InvocationHandler {
                             results = new ArrayList<>();
                             Object a = args[0];
                             int length = Array.getLength(a);
-                            if (queryInfo.validatable && validator != null)
-                                validator.validate(a, length);
+                            //if (queryInfo.validatable && validator != null)
+                            //    validator.validate(a, length);
                             for (int i = 0; i < length; i++)
                                 results.add(em.merge(toEntity(Array.get(a, i))));
                             em.flush();
                         } else if (Iterable.class.isAssignableFrom(queryInfo.saveParamType)) {
-                            if (queryInfo.validatable && validator != null)
-                                validator.validate((Iterable<?>) args[0]);
+                            //if (queryInfo.validatable && validator != null)
+                            //    validator.validate((Iterable<?>) args[0]);
                             results = new ArrayList<>();
                             for (Object e : ((Iterable<?>) args[0]))
                                 results.add(em.merge(toEntity(e)));
                             em.flush();
                         } else {
-                            if (queryInfo.validatable && validator != null && args[0] != null)
-                                validator.validate(args[0]);
+                            //if (queryInfo.validatable && validator != null && args[0] != null)
+                            //    validator.validate(args[0]);
                             results = List.of(em.merge(toEntity(args[0])));
                             em.flush();
                         }
@@ -2276,6 +2278,9 @@ public class RepositoryImpl<R> implements InvocationHandler {
                 }
             }
 
+            if (queryInfo.validatable && validator != null)
+                validator.validateReturnValue(proxy, method, returnValue);
+
             if (trace && tc.isEntryEnabled())
                 Tr.exit(this, tc, "invoke " + repositoryInterface.getSimpleName() + '.' + method.getName(), returnValue);
             return returnValue;
@@ -2286,80 +2291,6 @@ public class RepositoryImpl<R> implements InvocationHandler {
                 Tr.exit(this, tc, "invoke " + repositoryInterface.getSimpleName() + '.' + method.getName(), x);
             throw x;
         }
-    }
-
-    /**
-     * Determine whether or not the parameter to the method should be validated.
-     * Prerequisites: the Valid field must contain the jakarta.validation.Valid class and not be null.
-     *
-     * @param method    repository method.
-     * @param arg0Class class of the first argument to the method.
-     * @return whether or not the first parameter to the method should be validated.
-     */
-    @Trivial
-    private boolean isValidatable(Method method, Class<?> arg0Class) {
-        // TODO based on outcome of Jakarta Data issue 216, either remove this method and requestsValidation
-        // or switch to use it and also implement validation for remove.
-        if (true)
-            return true;
-
-        final boolean trace = TraceComponent.isAnyTracingEnabled();
-        if (trace && tc.isEntryEnabled())
-            Tr.entry(this, tc, "isValidatable", method, arg0Class);
-
-        if (method.isAnnotationPresent(Valid)) {
-            if (trace && tc.isEntryEnabled())
-                Tr.exit(this, tc, "isValidatable", "true: method has @Valid");
-            return true;
-        }
-
-        for (Annotation paramAnno : method.getParameterAnnotations()[0])
-            if (paramAnno.annotationType().equals(Valid)) {
-                if (trace && tc.isEntryEnabled())
-                    Tr.exit(this, tc, "isValidatable", "true: first arg has @Valid");
-                return true;
-            }
-
-        if (requestsValidation && (Object.class.equals(arg0Class) || defaultEntityClass.isAssignableFrom(arg0Class))) {
-            if (trace && tc.isEntryEnabled())
-                Tr.exit(this, tc, "isValidatable", "true: first arg type matches or is generic");
-            return true;
-        }
-
-        if (requestsValidation) {
-            Class<?> arrayComponentClass = arg0Class.componentType();
-            if (arrayComponentClass != null
-                && (Object.class.equals(arrayComponentClass) || defaultEntityClass.isAssignableFrom(arrayComponentClass))) {
-                if (trace && tc.isEntryEnabled())
-                    Tr.exit(this, tc, "isValidatable", "true: first arg array class matches or is generic");
-                return true;
-            } else if (trace && tc.isDebugEnabled()) {
-                Tr.debug(this, tc, "array component " + arrayComponentClass + " is non-matching and non-generic");
-            }
-
-            if (Iterable.class.isAssignableFrom(arg0Class)) {
-                Type iterableComponentType = method.getGenericParameterTypes()[0];
-                if (iterableComponentType instanceof ParameterizedType) {
-                    Type[] typeParams = ((ParameterizedType) iterableComponentType).getActualTypeArguments();
-                    if (typeParams == null || typeParams.length == 0 || typeParams[0] instanceof TypeVariable // generic
-                        || typeParams[0] instanceof Class && defaultEntityClass.isAssignableFrom((Class<?>) typeParams[0])) {
-                        if (trace && tc.isEntryEnabled())
-                            Tr.exit(this, tc, "isValidatable", "true: first arg Iterable class matches or is generic");
-                        return true;
-                    } else if (trace && tc.isDebugEnabled()) {
-                        Tr.debug(this, tc, "iterable component " + typeParams[0] + " is non-matching and non-generic");
-                    }
-                } else {
-                    if (trace && tc.isEntryEnabled())
-                        Tr.exit(this, tc, "isValidatable", "true: " + iterableComponentType + " is not a parameterized type");
-                    return true;
-                }
-            }
-        }
-
-        if (trace && tc.isEntryEnabled())
-            Tr.exit(this, tc, "isValidatable", "false, requestsValidation? " + requestsValidation);
-        return false;
     }
 
     @Trivial
